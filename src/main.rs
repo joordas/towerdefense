@@ -1,45 +1,34 @@
-use bevy::{core_pipeline::clear_color::ClearColorConfig, prelude::*, render::view::RenderLayers};
-use bevy::utils::FloatOrd;
-use bevy_inspector_egui::WorldInspectorPlugin;
-use simula_action::ActionPlugin;
-use simula_video::rt;
+use bevy::{
+    core_pipeline::clear_color::ClearColorConfig, pbr::NotShadowCaster, prelude::*,
+    render::view::RenderLayers,
+};
 use bevy_egui::EguiPlugin;
+use bevy_inspector_egui::WorldInspectorPlugin;
+use bevy_mod_picking::*;
+use bevy_rapier3d::{
+    prelude::{NoUserData, RapierConfiguration, RapierPhysicsPlugin},
+    render::RapierDebugRenderPlugin,
+};
+use simula_action::ActionPlugin;
 use simula_camera::{flycam::*, orbitcam::*};
+use simula_video::rt;
+
+mod bullet;
+mod components;
+mod physics;
+mod target;
+mod tower;
+
+pub use bullet::*;
+use physics::{PhysicsBundle, PhysicsPlugin};
+pub use target::*;
+pub use tower::*;
 
 pub const HEIGHT: f32 = 720.0;
 pub const WIDTH: f32 = 1280.0;
 
-#[derive(Reflect, Component, Default)]
-#[reflect(Component)]
-pub struct Tower {
-    shooting_timer: Timer,
-    bullet_offset: Vec3,
-}
+use crate::components::{GameAssets, Health, Target, TowerUIRoot, TowerType};
 
-#[derive(Reflect, Component, Default)]
-#[reflect(Component)]
-pub struct Lifetime {
-    timer: Timer,
-}
-
-#[derive(Reflect, Component, Default)]
-#[reflect(Component)]
-pub struct Target {
-    speed: f32,
-}
-
-#[derive(Reflect, Component, Default)]
-#[reflect(Component)]
-pub struct Health {
-    value: i32,
-}
-
-#[derive(Reflect, Component, Default)]
-#[reflect(Component)]
-pub struct Bullet {
-    direction: Vec3,
-    speed: f32,
-}
 
 fn main() {
     let mut app = App::new();
@@ -54,224 +43,230 @@ fn main() {
             },
             ..default()
         }))
-        .register_type::<Tower>()
         .add_plugin(EguiPlugin)
         .add_plugin(ActionPlugin)
         .add_plugin(OrbitCameraPlugin)
         .add_plugin(FlyCameraPlugin)
+        // init physics
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::default())
+        .add_plugin(RapierDebugRenderPlugin::default())
+        // mod picking
+        .add_plugins(DefaultPickingPlugins)
         .add_startup_system(spawn_camera)
         .add_startup_system(spawn_scene)
-        .add_system(tower_shooting)
-        .add_system(move_targets)
-        .add_system(bullet_despawn)
-        .add_system(move_bullets)
-        .add_system(target_death)
-        .add_system(bullet_collison)
-        .add_startup_system(setup)
+        .add_startup_system(create_ui_on_selection)
+        .add_plugin(BulletPlugin)
+        .add_plugin(TowerPlugin)
+        .add_plugin(TargetPlugin)
+        .add_plugin(PhysicsPlugin)
+        .add_system(what_is_selected)
+        // .add_startup_system(setup)
+        .add_startup_system_to_stage(StartupStage::PreStartup, asset_loading)
         .add_plugin(WorldInspectorPlugin::new())
         .run();
 }
 
 fn spawn_camera(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-  let rt_image = images.add(rt::common_render_target_image(UVec2 { x: 256, y: 256 }));
+    let rt_image = images.add(rt::common_render_target_image(UVec2 { x: 256, y: 256 }));
 
-  commands
-      .spawn(Camera3dBundle {
-          transform: Transform::from_xyz(0.0, 2.0, -10.0)
-              .looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
-          ..default()
-      })
-      .insert(RenderLayers::all())
-      .with_children(|parent| {
-          let mut _child = parent.spawn(Camera3dBundle {
-              camera_3d: Camera3d {
-                  clear_color: ClearColorConfig::Custom(Color::BLACK),
-                  ..default()
-              },
-              camera: Camera {
-                  priority: -1,
-                  target: bevy::render::camera::RenderTarget::Image(rt_image.clone()),
-                  ..default()
-              },
-              ..default()
-          });
-      })
-      .insert(FlyCamera::default());
+    commands
+        .spawn(Camera3dBundle {
+            transform: Transform::from_xyz(0.0, 2.0, -10.0)
+                .looking_at(Vec3::new(0.0, 1.0, 0.0), Vec3::Y),
+            ..default()
+        })
+        .insert(RenderLayers::all())
+        .insert(PickingCameraBundle::default())
+        .with_children(|parent| {
+            let mut _child = parent.spawn(Camera3dBundle {
+                camera_3d: Camera3d {
+                    clear_color: ClearColorConfig::Custom(Color::BLACK),
+                    ..default()
+                },
+                camera: Camera {
+                    priority: -1,
+                    target: bevy::render::camera::RenderTarget::Image(rt_image.clone()),
+                    ..default()
+                },
+                ..default()
+            });
+        })
+        .insert(FlyCamera::default());
 }
 
 fn spawn_scene(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut rapier_config: ResMut<RapierConfiguration>,
+    game_assets: Res<GameAssets>,
 ) {
+    rapier_config.gravity = Vec3::ZERO;
+
     commands
         .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Plane { size: 5.0 })),
+            mesh: meshes.add(Mesh::from(shape::Plane { size: 25.0 })),
             material: materials.add(Color::rgb(1.0, 1.0, 1.0).into()),
             // transform: Transform::from_xyz(0.0, 0.0, 0.0),
             ..Default::default()
         })
         .insert(Name::new("Floor"));
 
-    // middle tower
-    let middle_tower_transform = Transform::from_xyz(0.0, 0.5, 0.0);
-    commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
-            material: materials.add(Color::rgb(0.2, 0.8, 0.2).into()),
-            transform: middle_tower_transform,
-            ..Default::default()
-        })
-        .insert(Tower {
-            shooting_timer: Timer::from_seconds(1.0, TimerMode::Repeating),
-            bullet_offset: Vec3::new(0.0, 0.0, 0.0),
-        })
-        .insert(Name::new("Tower"))
-        .insert(Health { value: 3 });
-    // .insert(Target {
-    //   speed: 0.3,
-    // });
-
     // target 1
-    let target_1_transform = Transform::from_xyz(-4.0, 0.2, 1.5);
 
     commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.4 })),
-            material: materials.add(Color::rgb(0.9, 0.2, 0.2).into()),
-            transform: target_1_transform,
+        .spawn(SceneBundle {
+            scene: game_assets.target_scene.clone(),
+            transform: Transform::from_xyz(-4.0, 0.4, 2.5),
             ..Default::default()
         })
-        // .insert(Tower {
-        //   shooting_timer: Timer::from_seconds(1.0, TimerMode::Repeating),
-        // })
         .insert(Name::new("Target"))
         .insert(Health { value: 3 })
-        .insert(Target { speed: 0.3 });
+        .insert(Target { speed: 0.3 })
+        .insert(PhysicsBundle::moving_entity(Vec3::new(0.2, 0.2, 0.2)));
 
     // target 2
-    let target_2_transform = Transform::from_xyz(-5.0, 0.2, 1.5);
 
     commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 0.4 })),
-            material: materials.add(Color::rgb(0.9, 0.2, 0.2).into()),
-            transform: target_2_transform,
+        .spawn(SceneBundle {
+            scene: game_assets.target_scene.clone(),
+            transform: Transform::from_xyz(-5.0, 0.4, 2.5),
             ..Default::default()
         })
-        // .insert(Tower {
-        //   shooting_timer: Timer::from_seconds(1.0, TimerMode::Repeating),
-        // })
         .insert(Name::new("Target"))
         .insert(Health { value: 3 })
-        .insert(Target { speed: 0.3 });
+        .insert(Target { speed: 0.3 })
+        .insert(PhysicsBundle::moving_entity(Vec3::new(0.2, 0.2, 0.2)));
 
     // spawn light
+
     commands
         .spawn(PointLightBundle {
+            point_light: PointLight {
+                intensity: 1500.0,
+                shadows_enabled: true,
+                ..default()
+            },
             transform: Transform::from_xyz(4.0, 8.0, 4.0),
-            ..Default::default()
+            ..default()
         })
         .insert(Name::new("Light"));
+
+    let default_collider_color = materials.add(Color::rgba(0.3, 0.5, 0.3, 0.3).into());
+
+    let selected_collider_color = materials.add(Color::rgba(0.3, 0.9, 0.3, 0.9).into());
+
+    commands
+        .spawn(SpatialBundle::from_transform(Transform::from_xyz(
+            0.0, 0.8, 0.0,
+        )))
+        .insert(Name::new("Tower Base"))
+        .insert(meshes.add(shape::Capsule::default().into()))
+        .insert(Highlighting {
+            initial: default_collider_color.clone(),
+            hovered: Some(selected_collider_color.clone()),
+            pressed: Some(selected_collider_color.clone()),
+            selected: Some(selected_collider_color),
+        })
+        .insert(default_collider_color)
+        .insert(NotShadowCaster)
+        .insert(PickableBundle::default())
+        .with_children(|commands| {
+            commands.spawn(SceneBundle {
+                scene: game_assets.tower_base_scene.clone(),
+                transform: Transform::from_xyz(0.0, -0.8, 0.0),
+                ..Default::default()
+            });
+        });
 }
 
-fn move_targets(mut targets: Query<(&Target, &mut Transform)>, time: Res<Time>) {
-    for (target, mut transform) in &mut targets {
-        transform.translation.x += target.speed * time.delta_seconds();
-    }
-}
-
-fn tower_shooting(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    targets: Query<&GlobalTransform, With<Target>>,
-    mut towers: Query<(Entity, &mut Tower, &GlobalTransform)>,
-    time: Res<Time>,
+fn create_ui_on_selection(
+  mut commands: Commands,
+  asset_server: Res<AssetServer>,
+  //Perf could probably be smarter with change detection
+  selections: Query<&Selection>,
+  root: Query<Entity, With<TowerUIRoot>>,
 ) {
-    for (tower_ent, mut tower, transform) in &mut towers {
-        tower.shooting_timer.tick(time.delta());
-        {
-            if tower.shooting_timer.just_finished() {
-                let bullet_spawn: Vec3 = transform.translation() + tower.bullet_offset;
-
-                let direction: Option<Vec3> = targets
-                    .iter()
-                    .min_by_key(|target_transform| {
-                        FloatOrd(Vec3::distance(target_transform.translation(), bullet_spawn))
-                    })
-                    .map(|closest_target| closest_target.translation() - bullet_spawn);
-
-                if let Some(direction) = direction {
-                    commands.entity(tower_ent).with_children(|commands| {
-
-                        let spawn_transform = Transform::from_translation(tower.bullet_offset);
-                        commands
-                            .spawn(PbrBundle {
-                                mesh: meshes.add(Mesh::from(shape::UVSphere {
-                                    radius: 0.1,
-                                    ..Default::default()
-                                })),
-                                material: materials.add(Color::rgb(0.2, 0.2, 0.8).into()),
-                                transform: spawn_transform,
-                                ..Default::default()
-                            })
-                            .insert(Lifetime {
-                                timer: Timer::from_seconds(5.5, TimerMode::Once),
-                            })
-                            .insert(Name::new("Bullet"))
-                            .insert(Bullet {
-                                direction: direction,
-                                speed: 5.5,
-                            });
-                    });
-                }
-            }
-        }
-    }
-}
-
-fn move_bullets(mut bullets: Query<(&Bullet, &mut Transform)>, time: Res<Time>) {
-    for (bullet, mut transform) in &mut bullets {
-        transform.translation += bullet.direction.normalize() * bullet.speed * time.delta_seconds();
-    }
-}
-
-fn bullet_despawn(
-    mut commands: Commands,
-    mut bullets: Query<(Entity, &mut Lifetime)>,
-    time: Res<Time>,
-) {
-    for (entity, mut lifetime) in &mut bullets {
-        lifetime.timer.tick(time.delta());
-        if lifetime.timer.just_finished() {
-            commands.entity(entity).despawn_recursive();
-        }
-    }
-}
-
-fn bullet_collison(
-    mut commands: Commands,
-    bullets: Query<(Entity, &GlobalTransform), With<Bullet>>,
-    mut targets: Query<(&mut Health, &Transform), With<Target>>,
-) {
-  for (bullet, bullet_transform) in &bullets {
-    for (mut health, target_transform) in &mut targets {
-      if Vec3::distance(bullet_transform.translation(), target_transform.translation) < 0.2 {
-        health.value -= 1;
-        commands.entity(bullet).despawn_recursive();
-        break;
+  let at_least_one_selected = selections.iter().any(|selection| selection.selected());
+  match root.get_single() {
+      Ok(root) => {
+          if !at_least_one_selected {
+              commands.entity(root).despawn_recursive();
+          }
       }
-    }
+      //No root exist
+      Err(QuerySingleError::NoEntities(..)) => {
+          if at_least_one_selected {
+              create_ui(&mut commands, &asset_server);
+          }
+      }
+      _ => unreachable!("Too many ui tower roots!"),
   }
 }
 
-fn target_death(mut commands: Commands, targets: Query<(Entity, &Health)>) {
-    for (entity, health) in &targets {
-        if health.value <= 0 {
-            commands.entity(entity).despawn_recursive();
+fn create_ui(
+  mut commands: &mut Commands,
+  asset_server: &AssetServer
+) {
+
+  let button_icons = [
+    asset_server.load("tomato_tower.png"),
+    asset_server.load("potato_tower.png"),
+    asset_server.load("cabbage_tower.png"),
+];
+
+
+let towers = [TowerType::Tomato, TowerType::Potato, TowerType::Cabbage];
+
+  commands
+  .spawn(NodeBundle {
+      style: Style {
+          size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+          justify_content: JustifyContent::Center,
+          ..default()
+      },
+      ..default()
+  }).insert(TowerUIRoot)
+  .with_children(|commands| {
+    for i in 0..3 {
+        commands
+            .spawn(ButtonBundle {
+                style: Style {
+                    size: Size::new(Val::Percent(15.0 * 9.0 / 16.0), Val::Percent(15.0)),
+                    align_self: AlignSelf::FlexEnd,
+                    margin: UiRect::all(Val::Percent(2.0)),
+                    ..default()
+                },
+                image: button_icons[i].clone().into(),
+                ..default()
+            })
+            .insert(towers[i]);
+    }
+});
+}
+
+
+fn what_is_selected(selection: Query<(&Name, &Selection)>) {
+    for (name, selection) in &selection {
+        if selection.selected() {
+            info!("{}", name);
         }
     }
 }
 
-fn setup(mut commands: Commands) {}
+fn asset_loading(mut commands: Commands, assets: Res<AssetServer>) {
+  commands.insert_resource(GameAssets {
+    tower_base_scene: assets.load("TowerBase.glb#Scene0"),
+    tomato_tower_scene: assets.load("TomatoTower.glb#Scene0"),
+    tomato_scene: assets.load("Tomato.glb#Scene0"),
+    potato_tower_scene: assets.load("PotatoTower.glb#Scene0"),
+    potato_scene: assets.load("Potato.glb#Scene0"),
+    cabbage_tower_scene: assets.load("CabbageTower.glb#Scene0"),
+    cabbage_scene: assets.load("Cabbage.glb#Scene0"),
+    target_scene: assets.load("Target.glb#Scene0"),
+});
+}
+
+
+
+// fn setup(mut commands: Commands) {}

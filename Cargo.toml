@@ -12,6 +12,8 @@ simula_camera = { git = "https://github.com/Simbotic/simula.git", branch = "bevy
 simula_video = { git = "https://github.com/Simbotic/simula.git", branch = "bevy-v0.9.0" }
 simula_action = { git = "https://github.com/Simbotic/simula.git", branch = "bevy-v0.9.0" }
 bevy_egui = "0.17"
+bevy_rapier3d = "0.19"
+bevy_mod_picking = "0.10.0"
 
 
 [profile.dev]
