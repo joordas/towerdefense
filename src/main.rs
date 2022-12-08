@@ -1,6 +1,6 @@
 use bevy::{
-    core_pipeline::clear_color::ClearColorConfig, pbr::NotShadowCaster, prelude::*,
-    render::view::RenderLayers,
+    core_pipeline::clear_color::ClearColorConfig, ecs::query::QuerySingleError,
+    pbr::NotShadowCaster, prelude::*, render::view::RenderLayers,
 };
 use bevy_egui::EguiPlugin;
 use bevy_inspector_egui::WorldInspectorPlugin;
@@ -27,8 +27,7 @@ pub use tower::*;
 pub const HEIGHT: f32 = 720.0;
 pub const WIDTH: f32 = 1280.0;
 
-use crate::components::{GameAssets, Health, Target, TowerUIRoot, TowerType};
-
+use crate::components::{GameAssets, Health, Target, TowerType, TowerUIRoot};
 
 fn main() {
     let mut app = App::new();
@@ -54,7 +53,6 @@ fn main() {
         .add_plugins(DefaultPickingPlugins)
         .add_startup_system(spawn_camera)
         .add_startup_system(spawn_scene)
-        .add_startup_system(create_ui_on_selection)
         .add_plugin(BulletPlugin)
         .add_plugin(TowerPlugin)
         .add_plugin(TargetPlugin)
@@ -105,38 +103,12 @@ fn spawn_scene(
 
     commands
         .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Plane { size: 25.0 })),
-            material: materials.add(Color::rgb(1.0, 1.0, 1.0).into()),
+            mesh: meshes.add(Mesh::from(shape::Plane { size: 50.0 })),
+            material: materials.add(Color::rgb(0.2, 1.0, 0.2).into()),
             // transform: Transform::from_xyz(0.0, 0.0, 0.0),
             ..Default::default()
         })
         .insert(Name::new("Floor"));
-
-    // target 1
-
-    commands
-        .spawn(SceneBundle {
-            scene: game_assets.target_scene.clone(),
-            transform: Transform::from_xyz(-4.0, 0.4, 2.5),
-            ..Default::default()
-        })
-        .insert(Name::new("Target"))
-        .insert(Health { value: 3 })
-        .insert(Target { speed: 0.3 })
-        .insert(PhysicsBundle::moving_entity(Vec3::new(0.2, 0.2, 0.2)));
-
-    // target 2
-
-    commands
-        .spawn(SceneBundle {
-            scene: game_assets.target_scene.clone(),
-            transform: Transform::from_xyz(-5.0, 0.4, 2.5),
-            ..Default::default()
-        })
-        .insert(Name::new("Target"))
-        .insert(Health { value: 3 })
-        .insert(Target { speed: 0.3 })
-        .insert(PhysicsBundle::moving_entity(Vec3::new(0.2, 0.2, 0.2)));
 
     // spawn light
 
@@ -153,98 +125,50 @@ fn spawn_scene(
         .insert(Name::new("Light"));
 
     let default_collider_color = materials.add(Color::rgba(0.3, 0.5, 0.3, 0.3).into());
-
     let selected_collider_color = materials.add(Color::rgba(0.3, 0.9, 0.3, 0.9).into());
 
-    commands
-        .spawn(SpatialBundle::from_transform(Transform::from_xyz(
-            0.0, 0.8, 0.0,
-        )))
-        .insert(Name::new("Tower Base"))
-        .insert(meshes.add(shape::Capsule::default().into()))
-        .insert(Highlighting {
-            initial: default_collider_color.clone(),
-            hovered: Some(selected_collider_color.clone()),
-            pressed: Some(selected_collider_color.clone()),
-            selected: Some(selected_collider_color),
-        })
-        .insert(default_collider_color)
-        .insert(NotShadowCaster)
-        .insert(PickableBundle::default())
-        .with_children(|commands| {
-            commands.spawn(SceneBundle {
-                scene: game_assets.tower_base_scene.clone(),
-                transform: Transform::from_xyz(0.0, -0.8, 0.0),
-                ..Default::default()
-            });
-        });
-}
-
-fn create_ui_on_selection(
-  mut commands: Commands,
-  asset_server: Res<AssetServer>,
-  //Perf could probably be smarter with change detection
-  selections: Query<&Selection>,
-  root: Query<Entity, With<TowerUIRoot>>,
-) {
-  let at_least_one_selected = selections.iter().any(|selection| selection.selected());
-  match root.get_single() {
-      Ok(root) => {
-          if !at_least_one_selected {
-              commands.entity(root).despawn_recursive();
-          }
-      }
-      //No root exist
-      Err(QuerySingleError::NoEntities(..)) => {
-          if at_least_one_selected {
-              create_ui(&mut commands, &asset_server);
-          }
-      }
-      _ => unreachable!("Too many ui tower roots!"),
-  }
-}
-
-fn create_ui(
-  mut commands: &mut Commands,
-  asset_server: &AssetServer
-) {
-
-  let button_icons = [
-    asset_server.load("tomato_tower.png"),
-    asset_server.load("potato_tower.png"),
-    asset_server.load("cabbage_tower.png"),
-];
-
-
-let towers = [TowerType::Tomato, TowerType::Potato, TowerType::Cabbage];
-
-  commands
-  .spawn(NodeBundle {
-      style: Style {
-          size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
-          justify_content: JustifyContent::Center,
-          ..default()
-      },
-      ..default()
-  }).insert(TowerUIRoot)
-  .with_children(|commands| {
-    for i in 0..3 {
-        commands
-            .spawn(ButtonBundle {
-                style: Style {
-                    size: Size::new(Val::Percent(15.0 * 9.0 / 16.0), Val::Percent(15.0)),
-                    align_self: AlignSelf::FlexEnd,
-                    margin: UiRect::all(Val::Percent(2.0)),
-                    ..default()
-                },
-                image: button_icons[i].clone().into(),
-                ..default()
-            })
-            .insert(towers[i]);
+    for i in 0..10 {
+        for j in 0..2 {
+            commands
+                .spawn(SpatialBundle::from_transform(Transform::from_xyz(
+                    2.0 * i as f32 + j as f32,
+                    0.8,
+                    5.0 * j as f32,
+                )))
+                .insert(Name::new("Tower_Base"))
+                .insert(meshes.add(shape::Capsule::default().into()))
+                .insert(Highlighting {
+                    initial: default_collider_color.clone(),
+                    hovered: Some(selected_collider_color.clone()),
+                    pressed: Some(selected_collider_color.clone()),
+                    selected: Some(selected_collider_color.clone()),
+                })
+                .insert(default_collider_color.clone())
+                .insert(NotShadowCaster)
+                .insert(PickableBundle::default())
+                .with_children(|commands| {
+                    commands.spawn(SceneBundle {
+                        scene: game_assets.tower_base_scene.clone(),
+                        transform: Transform::from_xyz(0.0, -0.8, 0.0),
+                        ..Default::default()
+                    });
+                });
+        }
     }
-});
-}
 
+    for i in 1..25 {
+        commands
+            .spawn(SceneBundle {
+                scene: game_assets.target_scene.clone(),
+                transform: Transform::from_xyz(-2.0 * i as f32, 0.4, 2.5),
+                ..Default::default()
+            })
+            .insert(Target { speed: 0.45 })
+            .insert(Health { value: 3 })
+            .insert(Name::new("Target"))
+            .insert(PhysicsBundle::moving_entity(Vec3::new(0.2, 0.2, 0.2)));
+    }
+}
 
 fn what_is_selected(selection: Query<(&Name, &Selection)>) {
     for (name, selection) in &selection {
@@ -255,18 +179,16 @@ fn what_is_selected(selection: Query<(&Name, &Selection)>) {
 }
 
 fn asset_loading(mut commands: Commands, assets: Res<AssetServer>) {
-  commands.insert_resource(GameAssets {
-    tower_base_scene: assets.load("TowerBase.glb#Scene0"),
-    tomato_tower_scene: assets.load("TomatoTower.glb#Scene0"),
-    tomato_scene: assets.load("Tomato.glb#Scene0"),
-    potato_tower_scene: assets.load("PotatoTower.glb#Scene0"),
-    potato_scene: assets.load("Potato.glb#Scene0"),
-    cabbage_tower_scene: assets.load("CabbageTower.glb#Scene0"),
-    cabbage_scene: assets.load("Cabbage.glb#Scene0"),
-    target_scene: assets.load("Target.glb#Scene0"),
-});
+    commands.insert_resource(GameAssets {
+        tower_base_scene: assets.load("TowerBase.glb#Scene0"),
+        tomato_tower_scene: assets.load("TomatoTower.glb#Scene0"),
+        tomato_scene: assets.load("Tomato.glb#Scene0"),
+        potato_tower_scene: assets.load("PotatoTower.glb#Scene0"),
+        potato_scene: assets.load("Potato.glb#Scene0"),
+        cabbage_tower_scene: assets.load("CabbageTower.glb#Scene0"),
+        cabbage_scene: assets.load("Cabbage.glb#Scene0"),
+        target_scene: assets.load("Target.glb#Scene0"),
+    });
 }
-
-
 
 // fn setup(mut commands: Commands) {}

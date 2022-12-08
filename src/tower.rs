@@ -26,13 +26,16 @@ fn tower_shooting(
                     .map(|closest_target| closest_target.translation() - bullet_spawn);
 
                 if let Some(direction) = direction {
+                    let (model, bullet) = tower_type.get_bullet(direction, &bullet_assets);
                     commands.entity(tower_ent).with_children(|commands| {
-                        let (model, bullet) = tower_type.get_bullet(direction, &bullet_assets);
-
                         commands
-                            .spawn(model)
+                            .spawn(SceneBundle {
+                                scene: model,
+                                transform: Transform::from_translation(tower.bullet_offset),
+                                ..Default::default()
+                            })
                             .insert(Lifetime {
-                                timer: Timer::from_seconds(5.5, TimerMode::Once),
+                                timer: Timer::from_seconds(10.0, TimerMode::Once),
                             })
                             .insert(Name::new("Bullet"))
                             .insert(bullet)
@@ -62,32 +65,38 @@ fn tower_shooting(
 // }
 
 fn tower_button_clicked(
-  interaction: Query<(&Interaction, &TowerType), Changed<Interaction>>,
-  mut commands: Commands,
-  selection: Query<(Entity, &Selection, &Transform)>,
-  assets: Res<GameAssets>,
+    interaction: Query<(&Interaction, &TowerType), Changed<Interaction>>,
+    mut commands: Commands,
+    selection: Query<(Entity, &Selection, &Transform)>,
+    assets: Res<GameAssets>,
 ) {
-  for (interaction, tower_type) in &interaction {
-      if matches!(interaction, Interaction::Clicked) {
-          for (entity, selection, transform) in &selection {
-              if selection.selected() {
-                  //Remove the base model/hitbox
-                  commands.entity(entity).despawn_recursive();
-
-                  spawn_tower(&mut commands, &assets, transform.translation, *tower_type);
-              }
-          }
-      }
-  }
+    for (interaction, tower_type) in &interaction {
+        if matches!(interaction, Interaction::Clicked) {
+            for (entity, selection, transform) in &selection {
+                if selection.selected() {
+                    //Remove the base model/hitbox
+                    commands.entity(entity).despawn_recursive();
+                    spawn_tower(&mut commands, &assets, transform.translation, *tower_type);
+                }
+            }
+        }
+    }
 }
-fn spawn_tower(commands: &mut Commands, tower_type: TowerType, assets: &GameAssets, position: Vec3) -> Entity {
-  let (model, tower) = tower_type.get_tower(&assets);
+
+fn spawn_tower(
+    commands: &mut Commands,
+    assets: &GameAssets,
+    position: Vec3,
+    tower_type: TowerType,
+) -> Entity {
+    let (model, tower) = tower_type.get_tower(&assets);
 
     commands
         .spawn(SpatialBundle::from_transform(Transform::from_translation(
             position,
         )))
         .insert(Name::new(format!("{:?}_Tower", tower_type)))
+        .insert(tower_type)
         .insert(tower)
         .with_children(|commands| {
             commands.spawn(SceneBundle {
@@ -99,11 +108,75 @@ fn spawn_tower(commands: &mut Commands, tower_type: TowerType, assets: &GameAsse
         .id()
 }
 
+fn create_ui_on_selection(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    //Perf could probably be smarter with change detection
+    selections: Query<&Selection>,
+    root: Query<Entity, With<TowerUIRoot>>,
+) {
+    let at_least_one_selected = selections.iter().any(|selection| selection.selected());
+    match root.get_single() {
+        Ok(root) => {
+            if !at_least_one_selected {
+                commands.entity(root).despawn_recursive();
+            }
+        }
+        //No root exist
+        Err(QuerySingleError::NoEntities(..)) => {
+            if at_least_one_selected {
+                create_ui(&mut commands, &asset_server);
+            }
+        }
+        _ => unreachable!("Too many ui tower roots!"),
+    }
+}
+
+fn create_ui(commands: &mut Commands, asset_server: &AssetServer) {
+    let button_icons = [
+        asset_server.load("tomato_tower.png"),
+        asset_server.load("potato_tower.png"),
+        asset_server.load("cabbage_tower.png"),
+    ];
+
+    let towers = [TowerType::Tomato, TowerType::Potato, TowerType::Cabbage];
+
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                size: Size::new(Val::Percent(100.0), Val::Percent(100.0)),
+                justify_content: JustifyContent::Center,
+                ..default()
+            },
+            ..default()
+        })
+        .insert(TowerUIRoot)
+        .with_children(|commands| {
+            for i in 0..3 {
+                commands
+                    .spawn(ButtonBundle {
+                        style: Style {
+                            size: Size::new(Val::Percent(15.0 * 9.0 / 16.0), Val::Percent(15.0)),
+                            align_self: AlignSelf::FlexEnd,
+                            margin: UiRect::all(Val::Percent(2.0)),
+                            ..default()
+                        },
+                        image: button_icons[i].clone().into(),
+                        ..default()
+                    })
+                    .insert(towers[i]);
+            }
+        });
+}
+
 #[derive(Default)]
 pub struct TowerPlugin;
 
 impl Plugin for TowerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system(tower_shooting);
+        app.register_type::<Tower>()
+            .add_system(tower_shooting)
+            .add_system(tower_button_clicked)
+            .add_system(create_ui_on_selection);
     }
 }
