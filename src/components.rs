@@ -115,3 +115,5 @@ pub enum GameState {
     InGame,
     GameOver,
 }
+
+pub struct TargetDeathEvent;

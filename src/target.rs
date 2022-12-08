@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 
 use crate::components::GameState;
-pub use crate::components::{Health, Target, Tower};
+pub use crate::components::{Health, Target, TargetDeathEvent, Tower};
 
 fn move_targets(mut targets: Query<(&Target, &mut Transform)>, time: Res<Time>) {
     for (target, mut transform) in &mut targets {
@@ -9,9 +9,14 @@ fn move_targets(mut targets: Query<(&Target, &mut Transform)>, time: Res<Time>) 
     }
 }
 
-fn target_death(mut commands: Commands, targets: Query<(Entity, &Health)>) {
+fn target_death(
+    mut commands: Commands,
+    targets: Query<(Entity, &Health)>,
+    mut death_event_writer: EventWriter<TargetDeathEvent>,
+) {
     for (entity, health) in &targets {
         if health.value <= 0 {
+            death_event_writer.send(TargetDeathEvent);
             commands.entity(entity).despawn_recursive();
         }
     }
@@ -25,6 +30,7 @@ impl Plugin for TargetPlugin {
         app.register_type::<Tower>()
             .register_type::<Target>()
             .register_type::<Health>()
+            .add_event::<TargetDeathEvent>()
             .add_system_set(
                 SystemSet::on_update(GameState::InGame)
                     .with_system(move_targets)

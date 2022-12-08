@@ -17,12 +17,14 @@ mod bullet;
 mod components;
 mod main_menu;
 mod physics;
+mod player;
 mod target;
 mod tower;
 
 pub use bullet::*;
 use main_menu::*;
 use physics::{PhysicsBundle, PhysicsPlugin};
+pub use player::*;
 pub use target::*;
 pub use tower::*;
 
@@ -64,7 +66,8 @@ fn main() {
         .add_plugin(TowerPlugin)
         .add_plugin(TargetPlugin)
         .add_plugin(PhysicsPlugin)
-        .add_system(what_is_selected)
+        .add_plugin(PlayerPlugin)
+        // .add_system(what_is_selected)
         // .add_startup_system(setup)
         .add_startup_system_to_stage(StartupStage::PreStartup, asset_loading)
         .add_plugin(WorldInspectorPlugin::new())
