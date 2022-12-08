@@ -102,9 +102,16 @@ impl TowerType {
                 assets.cabbage_scene.clone(),
                 Bullet {
                     direction,
-                    speed: 2.5,
+                    speed: 8.5,
                 },
             ),
         }
     }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum GameState {
+    MainMenu,
+    InGame,
+    GameOver,
 }

@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 
+use crate::components::GameState;
 pub use crate::components::{Health, Target, Tower};
 
 fn move_targets(mut targets: Query<(&Target, &mut Transform)>, time: Res<Time>) {
@@ -24,7 +25,10 @@ impl Plugin for TargetPlugin {
         app.register_type::<Tower>()
             .register_type::<Target>()
             .register_type::<Health>()
-            .add_system(move_targets)
-            .add_system(target_death);
+            .add_system_set(
+                SystemSet::on_update(GameState::InGame)
+                    .with_system(move_targets)
+                    .with_system(target_death),
+            );
     }
 }

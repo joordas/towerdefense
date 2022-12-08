@@ -15,11 +15,13 @@ use simula_video::rt;
 
 mod bullet;
 mod components;
+mod main_menu;
 mod physics;
 mod target;
 mod tower;
 
 pub use bullet::*;
+use main_menu::*;
 use physics::{PhysicsBundle, PhysicsPlugin};
 pub use target::*;
 pub use tower::*;
@@ -27,7 +29,7 @@ pub use tower::*;
 pub const HEIGHT: f32 = 720.0;
 pub const WIDTH: f32 = 1280.0;
 
-use crate::components::{GameAssets, Health, Target, TowerType, TowerUIRoot};
+use crate::components::{GameAssets, GameState, Health, Target, TowerUIRoot};
 
 fn main() {
     let mut app = App::new();
@@ -51,8 +53,13 @@ fn main() {
         .add_plugin(RapierDebugRenderPlugin::default())
         // mod picking
         .add_plugins(DefaultPickingPlugins)
+        //game state
+        .add_state(GameState::MainMenu)
+        .add_plugin(MainMenuPlugin)
         .add_startup_system(spawn_camera)
-        .add_startup_system(spawn_scene)
+        // add system set to run on inGame state
+        .add_system_set(SystemSet::on_enter(GameState::InGame).with_system(spawn_scene))
+        // .add_startup_system(spawn_scene)
         .add_plugin(BulletPlugin)
         .add_plugin(TowerPlugin)
         .add_plugin(TargetPlugin)

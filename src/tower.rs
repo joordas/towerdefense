@@ -174,9 +174,11 @@ pub struct TowerPlugin;
 
 impl Plugin for TowerPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<Tower>()
-            .add_system(tower_shooting)
-            .add_system(tower_button_clicked)
-            .add_system(create_ui_on_selection);
+        app.register_type::<Tower>().add_system_set(
+            SystemSet::on_update(GameState::InGame)
+                .with_system(tower_shooting)
+                .with_system(tower_button_clicked)
+                .with_system(create_ui_on_selection),
+        );
     }
 }

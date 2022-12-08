@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-use crate::components::{Bullet, Lifetime};
+use crate::components::{Bullet, GameState, Lifetime};
 
 fn move_bullets(mut bullets: Query<(&Bullet, &mut Transform)>, time: Res<Time>) {
     for (bullet, mut transform) in &mut bullets {
@@ -26,6 +26,11 @@ pub struct BulletPlugin;
 
 impl Plugin for BulletPlugin {
     fn build(&self, app: &mut App) {
-        app.add_system(move_bullets).add_system(bullet_despawn);
+        app.add_system_set(
+            SystemSet::on_update(GameState::InGame)
+                .with_system(move_bullets)
+                .with_system(bullet_despawn),
+        );
+        // .add_system(move_bullets).add_system(bullet_despawn);
     }
 }
