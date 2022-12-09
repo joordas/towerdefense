@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::utils::FloatOrd;
 
+use crate::components::TowerButtonState;
 pub use crate::components::{Bullet, GameAssets, Health, Lifetime, Target, Tower, TowerType};
 use crate::physics::PhysicsBundle;
 use crate::*;
@@ -65,18 +66,24 @@ fn tower_shooting(
 // }
 
 fn tower_button_clicked(
-    interaction: Query<(&Interaction, &TowerType), Changed<Interaction>>,
+    interaction: Query<(&Interaction, &TowerType, &TowerButtonState), Changed<Interaction>>,
     mut commands: Commands,
     selection: Query<(Entity, &Selection, &Transform)>,
+    mut player: Query<&mut Player>,
     assets: Res<GameAssets>,
 ) {
-    for (interaction, tower_type) in &interaction {
+    let mut player = player.single_mut();
+
+    for (interaction, tower_type, button_state) in &interaction {
         if matches!(interaction, Interaction::Clicked) {
             for (entity, selection, transform) in &selection {
                 if selection.selected() {
-                    //Remove the base model/hitbox
-                    commands.entity(entity).despawn_recursive();
-                    spawn_tower(&mut commands, &assets, transform.translation, *tower_type);
+                    if player.money >= button_state.cost {
+                        player.money -= button_state.cost;
+                        //Remove the base model/hitbox
+                        commands.entity(entity).despawn_recursive();
+                        spawn_tower(&mut commands, &assets, transform.translation, *tower_type);
+                    }
                 }
             }
         }
@@ -141,6 +148,8 @@ fn create_ui(commands: &mut Commands, asset_server: &AssetServer) {
 
     let towers = [TowerType::Tomato, TowerType::Potato, TowerType::Cabbage];
 
+    let costs = [50, 80, 110];
+
     commands
         .spawn(NodeBundle {
             style: Style {
@@ -164,9 +173,30 @@ fn create_ui(commands: &mut Commands, asset_server: &AssetServer) {
                         image: button_icons[i].clone().into(),
                         ..default()
                     })
+                    .insert(TowerButtonState {
+                        affordable: false,
+                        cost: costs[i],
+                    })
                     .insert(towers[i]);
             }
         });
+}
+
+fn grey_tower_buttons(
+    mut buttons: Query<(&mut BackgroundColor, &mut TowerButtonState)>,
+    player: Query<&Player>,
+) {
+    let player = player.single();
+
+    for (mut tint, mut state) in &mut buttons {
+        if player.money >= state.cost {
+            state.affordable = true;
+            *tint = Color::WHITE.into();
+        } else {
+            state.affordable = false;
+            *tint = Color::DARK_GRAY.into();
+        }
+    }
 }
 
 #[derive(Default)]
@@ -178,7 +208,8 @@ impl Plugin for TowerPlugin {
             SystemSet::on_update(GameState::InGame)
                 .with_system(tower_shooting)
                 .with_system(tower_button_clicked)
-                .with_system(create_ui_on_selection),
+                .with_system(create_ui_on_selection)
+                .with_system(grey_tower_buttons.after(create_ui_on_selection)),
         );
     }
 }

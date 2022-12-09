@@ -5,6 +5,12 @@ use bevy_inspector_egui::Inspectable;
 #[reflect(Component)]
 pub struct Target {
     pub speed: f32,
+    pub path_index: usize,
+}
+
+#[derive(Resource)]
+pub struct TargetPath {
+    pub waypoints: Vec<Vec2>,
 }
 
 #[derive(Reflect, Component, Default)]
@@ -117,3 +123,10 @@ pub enum GameState {
 }
 
 pub struct TargetDeathEvent;
+
+#[derive(Reflect, Component, Default)]
+#[reflect(Component)]
+pub struct TowerButtonState {
+    pub cost: u32,
+    pub affordable: bool,
+}
